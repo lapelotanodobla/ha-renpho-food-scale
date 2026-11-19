@@ -88,3 +88,16 @@ def test_repeated_stable_frames_are_one_weighing():
     state.disconnected()
     assert state.live_grams is None
     assert [e.type for e in state.feed(stable)] == ["weighed"]  # new session counts again
+
+
+def stable_frame(grams):
+    return protocol.parse(protocol.build(0x10, grams.to_bytes(4, "big", signed=True)))
+
+
+def test_drift_and_near_zero_wobble_are_not_weighings():
+    # Real sequence seen in HA on 2026-11-19 (settled values only).
+    state = protocol.ScaleState()
+    weighed = []
+    for g in [0, 212, 0, 212, 0, -212, -213, 0, 1, 2]:
+        weighed += [e.data["grams"] for e in state.feed(stable_frame(g)) if e.type == "weighed"]
+    assert weighed == [212, 212, -212]

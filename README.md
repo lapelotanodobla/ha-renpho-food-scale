@@ -18,8 +18,9 @@ The protocol was reverse-engineered from the scale itself, see [PROTOCOL.md](PRO
 | `switch.…_keep_connected` | Turn off to release the scale so a phone or the Renpho app can connect (one connection at a time) |
 | `binary_sensor.…_connected`, `sensor.…_battery` | Diagnostics |
 
-`weighed` fires once per new settled weight (the scale repeats settled readings; an empty scale,
-0 g, is not a weighing). Negative weights after a tare are reported as negative grams.
+`weighed` fires once per new settled weight: the scale repeats settled readings and drifts by a
+gram or two, so a weighing needs a change of at least 3 g, and an (almost) empty scale, within
+±2 g of zero, is not one. Negative weights after a tare are reported as negative grams.
 
 ## Install
 

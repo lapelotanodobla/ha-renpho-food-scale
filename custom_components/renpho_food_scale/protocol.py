@@ -18,6 +18,7 @@ BATTERY_UUID = "00002a19-0000-1000-8000-00805f9b34fb"
 
 HEADER = b"\x55\xaa"
 FROM_APP = 0xFB  # payload of the first echo after a command written by us
+WEIGHED_MIN_CHANGE = 3  # grams; smaller settled changes are drift or an empty scale wobbling
 
 
 class Cmd(IntEnum):
@@ -93,11 +94,12 @@ class ScaleState:
             self.live_grams = grams
             if cmd == Cmd.STABLE:
                 self.stable_grams = grams
-                # The scale repeats a stable reading (twice, then every few seconds):
-                # only a new value is a new weighing. An empty scale (0) is not one.
-                changed = grams != self._last_weighed
-                self._last_weighed = grams
-                if changed and grams != 0:
+                # The scale repeats a stable reading (twice, then every few seconds) and
+                # drifts by a gram or two: only a clear change is a new weighing, and an
+                # (almost) empty scale is not one.
+                last, self._last_weighed = self._last_weighed, grams
+                changed = last is None or abs(grams - last) >= WEIGHED_MIN_CHANGE
+                if changed and abs(grams) >= WEIGHED_MIN_CHANGE:
                     return [ScaleEvent("weighed", {"grams": grams})]
             return []
         if cmd == Cmd.TARE and p:
