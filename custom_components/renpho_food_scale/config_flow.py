@@ -16,8 +16,14 @@ from homeassistant.const import CONF_ADDRESS
 from .const import DOMAIN, MODEL
 
 
+MANUFACTURER_ID = 0x1A10  # shared with Renpho bathroom scales, which start 00 04
+DATA_PREFIX = b"\x00\x0d"
+
+
 def _is_scale(info: BluetoothServiceInfoBleak) -> bool:
-    return (info.name or "").startswith(MODEL)
+    """By name (active scan) or by manufacturer data (also seen by passive proxies)."""
+    data = info.manufacturer_data.get(MANUFACTURER_ID, b"")
+    return (info.name or "").startswith(MODEL) or data.startswith(DATA_PREFIX)
 
 
 class RenphoFoodScaleConfigFlow(ConfigFlow, domain=DOMAIN):
