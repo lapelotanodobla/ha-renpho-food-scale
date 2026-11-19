@@ -1,0 +1,55 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "bluetooth_confirm": {
+        "description": "Set up {name}? Keep the scale switched on while it connects."
+      },
+      "user": {
+        "description": "Switch the scale on, then pick it.",
+        "data": { "address": "Scale" }
+      }
+    },
+    "abort": {
+      "already_configured": "This scale is already set up.",
+      "no_devices_found": "No Renpho food scale found. Switch it on (press the power button) and try again."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "weight": { "name": "Weight" },
+      "stable_weight": { "name": "Last weighing" },
+      "battery": { "name": "Battery" }
+    },
+    "binary_sensor": {
+      "connected": { "name": "Connected" }
+    },
+    "button": {
+      "tare": { "name": "Tare" }
+    },
+    "select": {
+      "display_unit": {
+        "name": "Display unit",
+        "state": { "g": "g", "ml": "ml", "oz": "oz", "lb_oz": "lb:oz", "fl_oz": "fl'oz" }
+      }
+    },
+    "switch": {
+      "keep_connected": { "name": "Keep connected" }
+    },
+    "event": {
+      "activity": {
+        "name": "Activity",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "weighed": "Weighed",
+              "tare": "Tare",
+              "unit_changed": "Unit changed",
+              "power_off": "Switched off"
+            }
+          }
+        }
+      }
+    }
+  }
+}

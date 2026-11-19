@@ -1,0 +1,16 @@
+connected; settling 4s (keep the weight on the scale)
+13:39:35   <- 55 aa 09 00 00 08   R55 hello 
+13:39:35   <- 55 aa 1c 00 04 00 03 01 00 23   R55 info 00 03 01 00
+13:39:35   <- 55 aa 1c 00 04 00 03 01 00 23   R55 info 00 03 01 00
+13:39:36   <- 55 aa 15 00 01 01 16   R55 stable-flag 01
+13:39:36   <- 55 aa 10 00 04 00 00 00 aa bd   R55 STABLE 170 g
+13:39:36   <- 55 aa 15 00 01 01 16   R55 stable-flag 01
+13:39:36   <- 55 aa 10 00 04 00 00 00 aa bd   R55 STABLE 170 g
+13:39:39 -> 55 aa 97 00 01 01 98
+13:39:39   <- 55 aa 17 00 01 fb 12   R55 tare-pressed fb
+13:39:39   <- 55 aa 17 00 01 01 18   R55 tare-pressed 01
+13:39:39   <- 55 aa 15 00 01 01 16   R55 stable-flag 01
+13:39:40   <- 55 aa 10 00 04 00 00 00 00 13   R55 STABLE 0 g
+13:39:40   <- 55 aa 15 00 01 01 16   R55 stable-flag 01
+13:39:40   <- 55 aa 10 00 04 00 00 00 00 13   R55 STABLE 0 g
+*** scale reacted to 55 aa 97 00 01 01 98 ***
