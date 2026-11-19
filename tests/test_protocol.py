@@ -3,12 +3,14 @@
 import importlib.util
 import pathlib
 import re
+import sys
 
 ROOT = pathlib.Path(__file__).parent
 _spec = importlib.util.spec_from_file_location(
     "protocol", ROOT.parent / "custom_components/renpho_food_scale/protocol.py"
 )
 protocol = importlib.util.module_from_spec(_spec)
+sys.modules["protocol"] = protocol  # dataclasses (Python <= 3.13) look the module up
 _spec.loader.exec_module(protocol)
 
 FRAME_RE = re.compile(r"(55 aa(?: [0-9a-f]{2})+)")
