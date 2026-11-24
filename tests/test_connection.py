@@ -215,3 +215,19 @@ def test_retry_connector_can_reuse_the_same_client(radio):
         await asyncio.sleep(0.04)
         assert len(clients) == 1 and clients[0].is_connected
     run(radio, scenario)
+
+
+def test_release_retries_a_still_connected_client_and_reports_persistent_failure(radio):
+    async def scenario(scale, clients, factory, m):
+        scale.start()
+        await eventually(lambda: scale.connected)
+        client = clients[0]
+        disconnect = client.disconnect
+        client.disconnect = AsyncMock(side_effect=OSError("proxy busy"))
+        with pytest.raises(RuntimeError, match="release"):
+            await scale.set_hold(False)
+        assert client.is_connected and client.disconnect.await_count >= 2
+        client.disconnect = disconnect
+        await scale.set_hold(False)
+        assert not client.is_connected and len(clients) == 1
+    run(radio, scenario)

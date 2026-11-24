@@ -49,6 +49,7 @@ class ScaleConnection:
         self.connected = False
         self.hold = True  # False releases the scale for the phone / Renpho app
         self._client: BleakClientWithServiceCache | None = None
+        self._closing_client: BleakClientWithServiceCache | None = None
         self._worker: asyncio.Task | None = None
         self._advertised = asyncio.Event()
         self._control_lock = asyncio.Lock()
@@ -116,6 +117,8 @@ class ScaleConnection:
                     raise
             finally:
                 self._worker = None
+        if not await self._close_pending():
+            raise HomeAssistantError("Could not release the scale's Bluetooth connection. Try again.")
 
     def _ble_device(self) -> BLEDevice | None:
         return bluetooth.async_ble_device_from_address(self.hass, self.address, connectable=True)
@@ -125,8 +128,10 @@ class ScaleConnection:
         while True:
             self._advertised.clear()
             try:
-                if (device := self._ble_device()) is not None and await self._session(device):
-                    delay = self.RETRY_INITIAL
+                if await self._close_pending():
+                    device = self._ble_device()
+                    if device is not None and await self._session(device):
+                        delay = self.RETRY_INITIAL
             except Exception as err:
                 _LOGGER.debug("%s: connection attempt ended: %s", self.address, err)
             # HA can coalesce identical adverts after wake. A timer retries even
@@ -228,7 +233,8 @@ class ScaleConnection:
                 if client.is_connected:
                     # A release during an already-running power-off cleanup must
                     # still return the physical connection slot to the proxy.
-                    cleanup = asyncio.create_task(self._close_client(client))
+                    self._closing_client = client
+                    cleanup = asyncio.create_task(self._close_pending())
                     try:
                         await asyncio.shield(cleanup)
                     except asyncio.CancelledError:
@@ -239,12 +245,22 @@ class ScaleConnection:
                     self.address, received[Cmd.LIVE], received[Cmd.STABLE], rejected,
                 )
 
-    async def _close_client(self, client: BleakClientWithServiceCache) -> None:
-        try:
-            async with asyncio.timeout(self.IO_TIMEOUT):
-                await client.disconnect()
-        except Exception as err:
-            _LOGGER.debug("%s: disconnect error: %s", self.address, err)
+    async def _close_pending(self) -> bool:
+        client = self._closing_client
+        if client is None:
+            return True
+        for _ in range(2):
+            if not client.is_connected:
+                break
+            try:
+                async with asyncio.timeout(self.IO_TIMEOUT):
+                    await client.disconnect()
+            except Exception as err:
+                _LOGGER.debug("%s: disconnect error: %s", self.address, err)
+        if client.is_connected:
+            return False
+        self._closing_client = None
+        return True
 
     # ---- commands --------------------------------------------------------
 
