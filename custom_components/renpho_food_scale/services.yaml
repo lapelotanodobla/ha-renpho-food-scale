@@ -1,0 +1,11 @@
+diagnose_proxies:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: renpho_food_scale
+    sources:
+      selector:
+        text:
+          multiple: true

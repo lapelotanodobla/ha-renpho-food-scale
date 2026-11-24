@@ -51,5 +51,21 @@
         }
       }
     }
+  },
+  "services": {
+    "diagnose_proxies": {
+      "name": "Compare scale Bluetooth proxies",
+      "description": "Count scale notifications through up to two Home Assistant ESPHome proxies. Returns counts and connection results.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Scale",
+          "description": "The configured Renpho food scale to use."
+        },
+        "sources": {
+          "name": "Proxy source IDs",
+          "description": "One or two Bluetooth scanner source IDs, in test order. Leave empty to choose up to two observed ESPHome proxies."
+        }
+      }
+    }
   }
 }

@@ -233,13 +233,7 @@ class ScaleConnection:
                 if client.is_connected:
                     # A release during an already-running power-off cleanup must
                     # still return the physical connection slot to the proxy.
-                    self._closing_client = client
-                    cleanup = asyncio.create_task(self._close_pending())
-                    try:
-                        await asyncio.shield(cleanup)
-                    except asyncio.CancelledError:
-                        await cleanup
-                        raise
+                    await self._release_client(client)
                 _LOGGER.debug(
                     "%s: session ended: live=%d stable=%d rejected=%d",
                     self.address, received[Cmd.LIVE], received[Cmd.STABLE], rejected,
@@ -274,6 +268,63 @@ class ScaleConnection:
 
     async def set_unit(self, unit: str) -> None:
         await self._write(set_unit_command(unit))
+
+    async def diagnose_proxies(self, sources: list[str] | None = None) -> list[dict]:
+        """Temporarily lend only this scale's link to a source-specific diagnostic."""
+        from . import proxy_diagnosis as probe
+
+        if self._control_lock.locked():
+            raise HomeAssistantError("Another scale operation is in progress")
+        async with self._control_lock:
+            if self._unsub_adv is None:
+                raise HomeAssistantError("The scale is not loaded")
+            was_held = self.hold
+            try:
+                await self._stop_worker()
+                if was_held:
+                    # An exclusive device advertises again only after release.
+                    await asyncio.sleep(probe.ADVERTISE_SECONDS)
+                paths = probe.paths_for(self.hass, self.address)
+                requested = list(dict.fromkeys(sources)) if sources else sorted(
+                    paths, key=lambda key: probe.source_order(paths[key])
+                )[:2]
+                results = []
+                for source in requested[:2]:
+                    row = probe.result_for(source)
+                    results.append(row)
+                    paths = probe.paths_for(self.hass, self.address)
+                    if probe.has_scale_link(paths, self.address):
+                        row["error"] = "scale_slot_still_held"
+                        continue
+                    path = paths.get(source)
+                    if path is None:
+                        row["error"] = "not_seen_on_esphome"
+                        continue
+                    await probe.capture(path, row, self._release_client)
+                    if self._closing_client is not None:
+                        row["error"] = "release_failed"
+                        results.extend(
+                            dict(probe.result_for(later), error="previous_release_failed")
+                            for later in requested[len(results):2]
+                        )
+                        break
+                    if len(results) < len(requested):
+                        await asyncio.sleep(probe.ADVERTISE_SECONDS)
+                return results
+            finally:
+                # Hold remains the user's choice throughout. Unload and changes to
+                # the switch share this lock, so a later explicit choice still wins.
+                if was_held:
+                    self._start_worker()
+
+    async def _release_client(self, client) -> None:
+        self._closing_client = client
+        cleanup = asyncio.create_task(self._close_pending())
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            await cleanup
+            raise
 
     async def set_hold(self, hold: bool) -> None:
         async with self._control_lock:

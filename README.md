@@ -38,3 +38,9 @@ connection slot on the proxy while switched on.
   protocol; captures from those are welcome in an issue.
 - The live weight sensor is throttled to 4 updates per second. To keep it out of the recorder
   entirely, exclude it in the `recorder:` configuration.
+
+### Compare Bluetooth proxies
+
+When the scale displays a weight but Home Assistant receives none, an administrator can run **Renpho Food Scale: Compare scale Bluetooth proxies** under Developer Tools → Actions. Select the configured scale. To choose the order, enter one or two Bluetooth scanner source IDs from Home Assistant’s Bluetooth adapter details. With the field empty, the action chooses up to two ESPHome proxies that have seen the scale, preferring free slots and stronger signals.
+
+The action temporarily releases the integration’s normal connection to that scale. Each proxy uses its existing Home Assistant connection and a free slot to subscribe to the scale for 25 seconds. The response contains per-proxy connection errors, subscription success, negotiated MTU, observation duration and frame counts. A stable weight received twice counts as two frames. A zero count can also mean the scale was silent during that window. The original keep-connected setting is respected when the action ends.
