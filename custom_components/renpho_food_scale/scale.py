@@ -132,7 +132,6 @@ class ScaleConnection:
             # HA can coalesce identical adverts after wake. A timer retries even
             # when the next advert never reaches our callback. A fresh advert
             # shortens the backoff; the minimum delay also bounds radio churn.
-            bluetooth.async_rediscover_address(self.hass, self.address)
             await asyncio.sleep(self.RETRY_INITIAL)
             if delay > self.RETRY_INITIAL:
                 try:
