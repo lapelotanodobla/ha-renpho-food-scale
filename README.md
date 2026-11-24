@@ -44,3 +44,8 @@ connection slot on the proxy while switched on.
 When the scale displays a weight but Home Assistant receives none, an administrator can run **Renpho Food Scale: Compare scale Bluetooth proxies** under Developer Tools → Actions. Select the configured scale. To choose the order, enter one or two Bluetooth scanner source IDs from Home Assistant’s Bluetooth adapter details. With the field empty, the action chooses up to two ESPHome proxies that have seen the scale, preferring free slots and stronger signals.
 
 The action temporarily releases the integration’s normal connection to that scale. Each proxy uses its existing Home Assistant connection and a free slot to subscribe to the scale for 25 seconds. The response contains per-proxy connection errors, subscription success, negotiated MTU, observation duration and frame counts. A stable weight received twice counts as two frames. A zero count can also mean the scale was silent during that window. The original keep-connected setting is respected when the action ends.
+
+
+To use a proxy that delivered weight frames, go to **Settings → Devices & services → Renpho Food Scale → Configure** on the scale's entry. Select the proxy under **Preferred ESPHome Bluetooth proxy** and save. The choice persists across restarts. You can set it while the scale is asleep or select **Automatic (Home Assistant)** to return to the default routing.
+
+The preferred route must have seen the scale and have a free connection slot. When it cannot connect, the integration tries another observed ESPHome route, then Home Assistant's automatic routing. A session that delivers weight frames stays connected. A session that receives no weights for a minute can yield to an available alternative.

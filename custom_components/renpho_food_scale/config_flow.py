@@ -6,14 +6,17 @@ from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
 )
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlowWithReload
 from homeassistant.const import CONF_ADDRESS
+from homeassistant.core import callback
 
-from .const import DOMAIN, MODEL
+from .const import CONF_PREFERRED_SOURCE, DOMAIN, MODEL
+from .proxy_diagnosis import esphome_scanner_type
 
 
 MANUFACTURER_ID = 0x1A10  # shared with Renpho bathroom scales, which start 00 04
@@ -28,6 +31,11 @@ def _is_scale(info: BluetoothServiceInfoBleak) -> bool:
 
 class RenphoFoodScaleConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return RenphoOptionsFlow()
 
     def __init__(self) -> None:
         self._discovery: BluetoothServiceInfoBleak | None = None
@@ -78,4 +86,34 @@ class RenphoFoodScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({vol.Required(CONF_ADDRESS): vol.In(self._found)}),
+        )
+
+
+class RenphoOptionsFlow(OptionsFlowWithReload):
+    """Prefer a particular HA-owned ESPHome adapter only for this entry."""
+
+    async def async_step_init(self, user_input=None) -> ConfigFlowResult:
+        automatic = "automatic"
+        if user_input is not None:
+            options = dict(self.config_entry.options)
+            source = user_input[CONF_PREFERRED_SOURCE]
+            if source == automatic:
+                options.pop(CONF_PREFERRED_SOURCE, None)
+            else:
+                options[CONF_PREFERRED_SOURCE] = source
+            return self.async_create_entry(title="", data=options)
+
+        current = self.config_entry.options.get(CONF_PREFERRED_SOURCE, automatic)
+        choices = {automatic: "Automatic (Home Assistant)"}
+        # Scanners are registered even while the scale is asleep. Retain an
+        # existing preference if its proxy is temporarily offline.
+        for scanner in bluetooth.async_current_scanners(self.hass):
+            if isinstance(scanner, esphome_scanner_type()) and scanner.connector is not None:
+                choices[scanner.source] = f"{scanner.name} ({scanner.source})"
+        choices.setdefault(current, current)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({
+                vol.Required(CONF_PREFERRED_SOURCE, default=current): vol.In(choices)
+            }),
         )

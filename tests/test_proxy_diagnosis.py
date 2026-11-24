@@ -236,3 +236,132 @@ def test_early_disconnect_and_failed_close_do_not_silently_continue(radio, paths
         clients[-1].is_connected = False
 
     run(radio, scenario)
+
+
+def test_preferred_normal_path_keeps_early_weights_and_commands_and_releases(radio, paths):
+    _, add, remote = paths
+    add("wrong", rssi=-30)
+    scanner = add("chosen", rssi=-90)
+    original = scanner.connector.client
+
+    def make(*args, **kwargs):
+        c = original(*args, **kwargs)
+        lookup = c.services.get_characteristic
+        write = SimpleNamespace(uuid=radio[0].WRITE_UUID)
+        c.services.get_characteristic = lambda uuid: write if uuid == write.uuid else lookup(uuid)
+        c.write_gatt_char = AsyncMock()
+        return c
+
+    scanner.connector.client = make
+
+    async def scenario(scale, normal, factory, m):
+        scale.preferred_source = "chosen"
+        events = []
+        scale.add_event_listener(lambda e: events.append(e.type))
+        scale.start()
+        await eventually(lambda: scale.connected)
+        assert not normal and len(remote) == 1
+        assert scale.state.stable_grams == 68 and "weighed" in events
+        await scale.tare()
+        args, kwargs = remote[0].write_gatt_char.await_args
+        assert args[0].uuid == m.WRITE_UUID and args[1] == m.tare_command()
+        await scale.set_hold(False)
+        assert not remote[0].is_connected
+        remote[0].notify(bytes.fromhex("55 aa 10 00 04 00 00 00 44 57"))
+        assert events.count("weighed") == 1
+        await scale.set_hold(True)
+        await eventually(lambda: len(remote) == 2 and scale.connected)
+    run(radio, scenario)
+
+
+@pytest.mark.parametrize("fault", ["unseen", "busy", "subscribe_failure"])
+def test_fallback_then_uses_recovered_preferred_path(radio, paths, fault):
+    _, add, remote = paths
+    scanner = None
+    if fault != "unseen":
+        scanner = add("chosen", free=fault != "busy")
+    if fault == "subscribe_failure":
+        original = scanner.connector.client
+
+        def broken(*args, **kwargs):
+            c = original(*args, **kwargs)
+            c.start_notify = AsyncMock(side_effect=OSError("subscription failed"))
+            return c
+
+        scanner.connector.client = broken
+
+    async def scenario(scale, normal, factory, m):
+        scale.preferred_source = "chosen"
+        scale.PREFERRED_RETRY = 0.03
+        scale.SESSION_POLL = 0.01
+        scale.start()
+        await eventually(lambda: scale.connected and normal)
+        if fault == "unseen":
+            add("chosen")
+        elif fault == "busy":
+            scanner.connector.can_connect = lambda: True
+        else:
+            assert remote and not remote[0].is_connected
+            scanner.connector.client = original
+        await eventually(lambda: scale.state.stable_grams == 68)
+        assert not normal[0].is_connected and scale.connected
+    run(radio, scenario)
+
+
+def test_silent_preferred_can_yield_to_a_working_fallback(radio, paths):
+    _, add, remote = paths
+    preferred = add("chosen")
+    add("other")
+    original = preferred.connector.client
+    def silent(*args, **kwargs):
+        c = original(*args, **kwargs)
+        c.start_notify = AsyncMock()
+        return c
+    preferred.connector.client = silent
+
+    async def scenario(scale, normal, factory, m):
+        scale.preferred_source = "chosen"
+        scale.PREFERRED_RETRY = 0.03
+        scale.SESSION_POLL = 0.01
+        scale.start()
+        await eventually(lambda: scale.connected and remote)
+        # The HA default may choose the same strongest silent source again.
+        # Explicitly try the available different source before generic routing.
+        await eventually(lambda: scale.state.stable_grams == 68)
+        await asyncio.sleep(0.08)
+        assert scale.connected and len(remote) == 2 and not normal
+    run(radio, scenario)
+
+
+def test_release_during_preferred_setup_keeps_slot_and_next_wake_consistent(radio, paths):
+    _, add, remote = paths
+    preferred = add("chosen")
+    original = preferred.connector.client
+    entered = asyncio.Event()
+
+    def slow(*args, **kwargs):
+        client = original(*args, **kwargs)
+        connect = client.connect
+        async def connecting(**opts):
+            await connect(**opts)
+            entered.set()
+            await asyncio.Event().wait()
+        client.connect = connecting
+        return client
+
+    preferred.connector.client = slow
+
+    async def scenario(scale, normal, factory, m):
+        scale.preferred_source = "chosen"
+        scale.start()
+        await asyncio.wait_for(entered.wait(), 1)
+        await scale.set_hold(False)
+        assert not remote[0].is_connected and not scale.connected
+        preferred.connector.client = original
+        scale._on_advertisement(None, None)
+        await asyncio.sleep(0.025)
+        assert len(remote) == 1 and not normal
+        await scale.set_hold(True)
+        await eventually(lambda: scale.state.stable_grams == 68)
+        assert len(remote) == 2 and not normal
+    run(radio, scenario)

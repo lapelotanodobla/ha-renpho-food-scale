@@ -11,7 +11,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN
+from .const import CONF_PREFERRED_SOURCE, DOMAIN
 from .scale import ScaleConnection
 
 PLATFORMS = [
@@ -47,7 +47,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: RenphoFoodScaleConfigEntry) -> bool:
-    scale = ScaleConnection(hass, entry.data[CONF_ADDRESS], entry.title)
+    scale = ScaleConnection(
+        hass, entry.data[CONF_ADDRESS], entry.title, entry.options.get(CONF_PREFERRED_SOURCE, "")
+    )
     entry.runtime_data = scale
     # Platforms first: the switch restores "hold connection" before the first connect.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

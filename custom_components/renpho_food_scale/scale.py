@@ -24,6 +24,7 @@ from .protocol import (
     set_unit_command,
     tare_command,
 )
+from .proxy_client import ProxyClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,17 +40,21 @@ class ScaleConnection:
     RETRY_MAX = 60.0
     CONNECT_TIMEOUT = 30.0
     IO_TIMEOUT = 8.0
+    PREFERRED_RETRY = 60.0
+    SESSION_POLL = 15.0
 
-    def __init__(self, hass: HomeAssistant, address: str, name: str) -> None:
+    def __init__(self, hass: HomeAssistant, address: str, name: str, preferred_source: str = "") -> None:
         self.hass = hass
         self.address = address
         self.name = name
+        self.preferred_source = preferred_source
+        self._retry_source_at: dict[str, float] = {}
         self.state = ScaleState()
         self.battery: int | None = None
         self.connected = False
         self.hold = True  # False releases the scale for the phone / Renpho app
-        self._client: BleakClientWithServiceCache | None = None
-        self._closing_client: BleakClientWithServiceCache | None = None
+        self._client: BleakClientWithServiceCache | ProxyClient | None = None
+        self._closing_client: BleakClientWithServiceCache | ProxyClient | None = None
         self._worker: asyncio.Task | None = None
         self._advertised = asyncio.Event()
         self._control_lock = asyncio.Lock()
@@ -123,14 +128,29 @@ class ScaleConnection:
     def _ble_device(self) -> BLEDevice | None:
         return bluetooth.async_ble_device_from_address(self.hass, self.address, connectable=True)
 
+    def _proxy_path(self, *, preferred: bool):
+        if not self.preferred_source:
+            return None
+        from .proxy_diagnosis import paths_for, source_order
+
+        now = self.hass.loop.time()
+        eligible = (
+            path for source, path in paths_for(self.hass, self.address).items()
+            if (source == self.preferred_source) == preferred
+            and self._retry_source_at.get(source, 0) <= now
+            and path.scanner.connector.can_connect()
+        )
+        return min(eligible, key=source_order, default=None)
+
     async def _run(self) -> None:
         delay = self.RETRY_INITIAL
         while True:
             self._advertised.clear()
             try:
                 if await self._close_pending():
-                    device = self._ble_device()
-                    if device is not None and await self._session(device):
+                    path = self._proxy_path(preferred=True) or self._proxy_path(preferred=False)
+                    device = path.ble_device if path else self._ble_device()
+                    if device is not None and await self._session(device, path):
                         delay = self.RETRY_INITIAL
             except Exception as err:
                 _LOGGER.debug("%s: connection attempt ended: %s", self.address, err)
@@ -146,7 +166,7 @@ class ScaleConnection:
                     pass
             delay = min(delay * 2, self.RETRY_MAX)
 
-    async def _session(self, device: BLEDevice) -> bool:
+    async def _session(self, device: BLEDevice, path=None) -> bool:
         ended = asyncio.Event()
         client = None
         received = {Cmd.LIVE: 0, Cmd.STABLE: 0}
@@ -193,11 +213,15 @@ class ScaleConnection:
 
         try:
             async with asyncio.timeout(self.CONNECT_TIMEOUT):
-                client = await establish_connection(
-                    BleakClientWithServiceCache, device, self.name,
-                    disconnected_callback=on_disconnect,
-                    ble_device_callback=self._ble_device, max_attempts=3,
-                )
+                if path is None:
+                    client = await establish_connection(
+                        BleakClientWithServiceCache, device, self.name,
+                        disconnected_callback=on_disconnect,
+                        ble_device_callback=self._ble_device, max_attempts=3,
+                    )
+                else:
+                    client = ProxyClient(path, on_disconnect, self.CONNECT_TIMEOUT)
+                    await client.connect()
                 if ended.is_set() or not client.is_connected:
                     return False
                 # Some adapters deliver the first weight before start_notify returns.
@@ -216,14 +240,28 @@ class ScaleConnection:
                         await client.start_notify(BATTERY_UUID, on_battery)
             except Exception as err:
                 _LOGGER.debug("%s: battery unavailable: %s", self.address, err)
+            subscribed_at = self.hass.loop.time()
             while client.is_connected and not ended.is_set():
                 try:
-                    async with asyncio.timeout(15):
+                    async with asyncio.timeout(self.SESSION_POLL):
                         await ended.wait()
                 except TimeoutError:
-                    pass  # A proxy may change is_connected without calling back.
+                    # Allow a full silent window before switching. A route that
+                    # delivered a weight keeps the session until disconnection.
+                    if (
+                        self.preferred_source
+                        and not any(received.values())
+                        and self.hass.loop.time() - subscribed_at >= self.PREFERRED_RETRY
+                    ):
+                        on_preferred = path is not None and path.scanner.source == self.preferred_source
+                        if self._proxy_path(preferred=not on_preferred) is not None:
+                            break
             return True
         finally:
+            if path is not None and not any(received.values()) and not asyncio.current_task().cancelling():
+                # Try another observed source on the next attempt. When none is
+                # available, HA's normal routing still covers other adapters.
+                self._retry_source_at[path.scanner.source] = self.hass.loop.time() + self.PREFERRED_RETRY
             ended.set()
             if client is not None:
                 self._client = None

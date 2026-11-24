@@ -15,6 +15,14 @@
       "no_devices_found": "No Renpho food scale found. Switch it on (press the power button) and try again."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Choose the Bluetooth proxy to try first for this scale. Home Assistant can use another route if the preferred proxy is unavailable.",
+        "data": { "preferred_source": "Preferred ESPHome Bluetooth proxy" }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "weight": { "name": "Weight" },
