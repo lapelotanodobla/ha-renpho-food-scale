@@ -149,7 +149,7 @@ class ScaleConnection:
         rejected = 0
 
         def mark_lost(dropped):
-            if dropped is client:
+            if dropped is client and not dropped.is_connected:
                 ended.set()
 
         def on_disconnect(dropped):

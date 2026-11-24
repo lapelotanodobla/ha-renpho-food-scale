@@ -199,3 +199,19 @@ def test_missing_device_and_subscription_failure_then_manual_release(radio):
         await asyncio.sleep(0.04)
         assert not scale.connected and len(clients) == 2
     run(radio, scenario)
+
+
+def test_retry_connector_can_reuse_the_same_client(radio):
+    async def scenario(scale, clients, factory, m):
+        def establish(*args, **kwargs):
+            client = factory(*args, **kwargs)
+            # bleak-retry-connector can reuse the object across attempts. The
+            # earlier callback reaches HA after the next link has been made.
+            asyncio.get_running_loop().call_soon(client.dropped, client)
+            return client
+        radio[2].side_effect = establish
+        scale.start()
+        await eventually(lambda: scale.connected)
+        await asyncio.sleep(0.04)
+        assert len(clients) == 1 and clients[0].is_connected
+    run(radio, scenario)
